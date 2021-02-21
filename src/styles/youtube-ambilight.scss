@@ -326,10 +326,8 @@ html[data-ambilight-enabled="true"] {
   .ambilight,
   .ambilight__video-shadow,
   .ambilight__filter,
-  .ambilight__projector-list,
   .ambilight__projector,
   .ambilight__shadow,
-  .ambilight__clip,
   .ambilight__projectors {
       position: absolute;
       width: 100%;
@@ -355,9 +353,6 @@ html[data-ambilight-enabled="true"] {
       //transition: opacity .15s;
   }
 
-  .ambilight__clip {
-    //overflow: hidden;
-  }
   .ambilight__video-shadow {
     display: none;
   }

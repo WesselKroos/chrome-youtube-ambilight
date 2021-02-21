@@ -13,7 +13,7 @@ class Ambilight {
   horizontalBarsClipPX = 0
   lastCheckVideoSizeTime = 0
 
-  projectorOffset = {}
+  videoProjectorOffset = {}
   srcVideoOffset = {}
 
   isHidden = true
@@ -43,7 +43,6 @@ class Ambilight {
   syncInfo = []
 
   enableMozillaBug1606251Workaround = false
-  enableChromiumBug1123708Workaround = false
   enableChromiumBug1092080Workaround = false
 
   constructor(ytdAppElem, videoElem) {
@@ -59,7 +58,6 @@ class Ambilight {
     this.initElems(videoElem)
     this.initVideoElem(videoElem)
     this.detectMozillaBug1606251Workaround()
-    this.detectChromiumBug1123708Workaround()
     this.detectChromiumBug1092080Workaround()
 
     this.initFeedbackLink()
@@ -67,7 +65,6 @@ class Ambilight {
 
     this.initAmbilightElems()
     this.initBuffers()
-    this.recreateProjectors()
     this.initFPSListElem()
 
     this.initStyles()
@@ -218,16 +215,6 @@ class Ambilight {
     } catch(ex) {
       console.warn('YouTube Ambilight | applyChromiumBug1142112Workaround error. Continuing ambilight initialization...')
       AmbilightSentry.captureExceptionWithDetails(ex)
-    }
-  }
-
-  // Chromium workaround: Force to render the blur originating from the canvasses past the browser window
-  // https://bugs.chromium.org/p/chromium/issues/detail?id=1123708
-  detectChromiumBug1123708Workaround() {
-    const match = navigator.userAgent.match(/Chrome\/((?:\.|[0-9])+)/)
-    const version = (match && match.length > 1) ? parseFloat(match[1]) : null
-    if(version && version >= 85) {
-      this.enableChromiumBug1123708Workaround = true
     }
   }
 
@@ -460,25 +447,19 @@ class Ambilight {
     this.filterElem.classList.add('ambilight__filter')
     this.elem.prepend(this.filterElem)
 
-    if (this.enableChromiumBug1123708Workaround) {
-      this.chromiumBug1123708WorkaroundElem = new Canvas(1, 1, true)
-      this.chromiumBug1123708WorkaroundElem.classList.add('ambilight__chromium-bug-1123708-workaround')
-      this.filterElem.prepend(this.chromiumBug1123708WorkaroundElem)
-    }
-  
-    this.clipElem = document.createElement('div')
-    this.clipElem.classList.add('ambilight__clip')
-    this.filterElem.prepend(this.clipElem)
-
     this.projectorsElem = document.createElement('div')
     this.projectorsElem.classList.add('ambilight__projectors')
-    this.clipElem.prepend(this.projectorsElem)
+    this.filterElem.prepend(this.projectorsElem)
 
-    this.projectorListElem = document.createElement('div')
-    this.projectorListElem.classList.add('ambilight__projector-list')
-    this.projectorsElem.prepend(this.projectorListElem)
+    const projectorElem = new Canvas(1, 1)
+    projectorElem.classList.add('ambilight__projector')
+    this.projectorsElem.prepend(projectorElem)
+    this.projector = {
+      elem: projectorElem,
+      ctx: projectorElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
 
-    const shadowElem = new Canvas(1920, 1080, true)
+    const shadowElem = new Canvas(1, 1)
     shadowElem.classList.add('ambilight__shadow')
     this.projectorsElem.appendChild(shadowElem)
     const shadowCtx = shadowElem.getContext('2d', { ...ctxOptions, alpha: true })
@@ -542,13 +523,77 @@ class Ambilight {
       })
     }
 
+    const blurBufferElem = new Canvas(1, 1, true)
+    if (blurBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(blurBufferElem)
+    }
+    this.blurBuffer = {
+      elem: blurBufferElem,
+      ctx: blurBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+    
+
+    const projectorBlurBufferElem = new Canvas(1, 1, true)
+    if (projectorBlurBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(projectorBlurBufferElem)
+    }
+    this.projectorBlurBuffer = {
+      elem: projectorBlurBufferElem,
+      ctx: projectorBlurBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+
     const projectorsBufferElem = new Canvas(1, 1, true)
     if (projectorsBufferElem.tagName === 'CANVAS') {
       this.buffersWrapperElem.appendChild(projectorsBufferElem)
     }
     this.projectorBuffer = {
       elem: projectorsBufferElem,
-      ctx: projectorsBufferElem.getContext('2d', ctxOptions)
+      ctx: projectorsBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+
+    const cornerShadowBufferElem = new Canvas(1, 1, true)
+    if (cornerShadowBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(cornerShadowBufferElem)
+    }
+    this.cornerShadowBuffer = {
+      elem: cornerShadowBufferElem,
+      ctx: cornerShadowBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+
+    const sideShadowBufferElem = new Canvas(1, 1, true)
+    if (sideShadowBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(sideShadowBufferElem)
+    }
+    this.sideShadowBuffer = {
+      elem: sideShadowBufferElem,
+      ctx: sideShadowBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+
+    const shadowBufferElem = new Canvas(1, 1, true)
+    if (shadowBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(shadowBufferElem)
+    }
+    this.shadowBuffer = {
+      elem: shadowBufferElem,
+      ctx: shadowBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+
+    const shadowPreBlurBufferElem = new Canvas(1, 1, true)
+    if (shadowPreBlurBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(shadowPreBlurBufferElem)
+    }
+    this.shadowPreBlurBuffer = {
+      elem: shadowPreBlurBufferElem,
+      ctx: shadowPreBlurBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
+    }
+
+    const shadowBlurBufferElem = new Canvas(1, 1, true)
+    if (shadowBlurBufferElem.tagName === 'CANVAS') {
+      this.buffersWrapperElem.appendChild(shadowBlurBufferElem)
+    }
+    this.shadowBlurBuffer = {
+      elem: shadowBlurBufferElem,
+      ctx: shadowBlurBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
     }
 
     this.elem.appendChild(this.buffersWrapperElem)
@@ -1118,10 +1163,7 @@ class Ambilight {
     videoOverlayElem.classList.add('ambilight__video-overlay')
     this.videoOverlay = {
       elem: videoOverlayElem,
-      ctx: videoOverlayElem.getContext('2d', {
-        ctxOptions,
-        alpha: true
-      }),
+      ctx: videoOverlayElem.getContext('2d', { ...ctxOptions, alpha: true }),
       isHiddenChangeTimestamp: 0
     }
   }
@@ -1134,7 +1176,7 @@ class Ambilight {
     }
     this.previousProjectorBuffer = {
       elem: previousProjectorsBufferElem,
-      ctx: previousProjectorsBufferElem.getContext('2d', ctxOptions)
+      ctx: previousProjectorsBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
     }
 
     //this.blendedProjectorBuffer
@@ -1144,7 +1186,7 @@ class Ambilight {
     }
     this.blendedProjectorBuffer = {
       elem: blendedProjectorsBufferElem,
-      ctx: blendedProjectorsBufferElem.getContext('2d', ctxOptions)
+      ctx: blendedProjectorsBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
     }
   }
 
@@ -1156,7 +1198,7 @@ class Ambilight {
     }
     this.videoOverlayBuffer = {
       elem: videoOverlayBufferElem,
-      ctx: videoOverlayBufferElem.getContext('2d', ctxOptions)
+      ctx: videoOverlayBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
     }
 
     //this.previousVideoOverlayBuffer
@@ -1166,7 +1208,7 @@ class Ambilight {
     }
     this.previousVideoOverlayBuffer = {
       elem: previousVideoOverlayBufferElem,
-      ctx: previousVideoOverlayBufferElem.getContext('2d', ctxOptions)
+      ctx: previousVideoOverlayBufferElem.getContext('2d', { ...ctxOptions, alpha: true })
     }
   }
 
@@ -1206,41 +1248,12 @@ class Ambilight {
     this.feedbackFormLink = `https://docs.google.com/forms/d/e/1FAIpQLSe5lenJCbDFgJKwYuK_7U_s5wN3D78CEP5LYf2lghWwoE9IyA/viewform?usp=pp_url&entry.1590539866=${version}&entry.1676661118=${os}&entry.964326861=${browser}`
   }
 
-  recreateProjectors() {
-    const spreadLevels = Math.max(2, Math.round((this.spread / this.edge)) + this.innerStrength + 1)
-
-    if (!this.projectors) {
-      this.projectors = []
-    }
-
-    this.projectors = this.projectors.filter((projector, i) => {
-      if (i >= spreadLevels) {
-        projector.elem.remove()
-        return false
-      }
-      return true
-    })
-
-    for (let i = this.projectors.length; i < spreadLevels; i++) {
-      const projectorElem = new Canvas(1, 1)
-      projectorElem.classList.add('ambilight__projector')
-
-      const projectorCtx = projectorElem.getContext('2d', ctxOptions)
-      this.projectorListElem.prepend(projectorElem)
-
-      this.projectors.push({
-        elem: projectorElem,
-        ctx: projectorCtx
-      })
-    }
-  }
-
   clear() {
     // Clear canvasses
     const canvasses = [
       this.videoSnapshotBuffer,
       this.videoSnapshotGetImageDataBuffer,
-      ...this.projectors
+      this.projector
     ]
     if(this.previousProjectorBuffer) {
       canvasses.push(this.previousProjectorBuffer)
@@ -1330,8 +1343,8 @@ class Ambilight {
     this.isFillingFullscreen = (
       this.isFullscreen &&
       this.atTop &&
-      Math.abs(this.projectorOffset.width - window.innerWidth) < 10 &&
-      Math.abs(this.projectorOffset.height - window.innerHeight) < 10 &&
+      Math.abs(this.videoOffset.width - window.innerWidth) < 10 &&
+      Math.abs(this.videoOffset.height - window.innerHeight) < 10 &&
       noClipOrScale
     )
 
@@ -1383,22 +1396,22 @@ class Ambilight {
       `)
     }
 
-    this.projectorOffset = this.getElemRect(this.videoElem)
+    this.videoOffset = this.getElemRect(this.videoElem)
     if (
-      this.projectorOffset.top === undefined ||
-      !this.projectorOffset.width ||
-      !this.projectorOffset.height ||
+      this.videoOffset.top === undefined ||
+      !this.videoOffset.width ||
+      !this.videoOffset.height ||
       !this.videoElem.videoWidth ||
       !this.videoElem.videoHeight
     ) return false //Not ready
 
     this.srcVideoOffset = {
-      top: this.projectorOffset.top,
+      top: this.videoOffset.top,
       width: this.videoElem.videoWidth,
       height: this.videoElem.videoHeight
     }
 
-    const minSize = 512
+    const minSize = 384
     const scaleX = this.srcVideoOffset.width / minSize
     const scaleY = this.srcVideoOffset.height / minSize
     const scale = Math.min(scaleX, scaleY)
@@ -1416,15 +1429,15 @@ class Ambilight {
       }
     }
 
-    const unscaledWidth = Math.round(this.projectorOffset.width / (this.videoScale / 100))
-    const unscaledHeight = Math.round(this.projectorOffset.height / (this.videoScale / 100))
+    const unscaledWidth = Math.round(this.videoOffset.width / (this.videoScale / 100))
+    const unscaledHeight = Math.round(this.videoOffset.height / (this.videoScale / 100))
     const unscaledLeft = Math.round(
-      (this.projectorOffset.left + window.scrollX) - 
-      ((unscaledWidth - this.projectorOffset.width) / 2)
+      (this.videoOffset.left + window.scrollX) - 
+      ((unscaledWidth - this.videoOffset.width) / 2)
     )
     const unscaledTop = Math.round(
-      this.projectorOffset.top - 
-      ((unscaledHeight - this.projectorOffset.height) / 2)
+      this.videoOffset.top - 
+      ((unscaledHeight - this.videoOffset.height) / 2)
     )
 
     this.horizontalBarsClipScaleY = (1 - (horizontalBarsClip * 2))
@@ -1453,30 +1466,43 @@ class Ambilight {
     }
 
     this.filterElem.style.filter = `
-      ${(this.blur != 0) ? `blur(${Math.round(this.projectorOffset.height) * (this.blur * .0025)}px)` : ''}
       ${(this.contrast != 100) ? `contrast(${this.contrast}%)` : ''}
       ${(this.brightness != 100) ? `brightness(${this.brightness}%)` : ''}
       ${(this.saturation != 100) ? `saturate(${this.saturation}%)` : ''}
     `.trim()
 
-    this.projectors.forEach((projector) => {
-      if (projector.elem.width !== this.p.w)
-        projector.elem.width = this.p.w
-      if (projector.elem.height !== this.p.h)
-        projector.elem.height = this.p.h
-    })
+    this.filterBlurPx = (this.blur != 0) ? this.p.h * (Math.pow(this.blur, 1.75) * .00015) : 0
 
-    this.projectorBuffer.elem.width = this.p.w
-    this.projectorBuffer.elem.height = this.p.h
+    this.resizeCanvasses()
+
+    const pWidth = Math.round((this.p.w + this.filterBlurPx * 2) * this.projectorOuterScale.x)
+    const pHeight = Math.round((this.p.h + this.filterBlurPx * 2) * this.projectorOuterScale.y)
+
+    this.blurBuffer.elem.width = this.p.w + this.filterBlurPx * 4
+    this.blurBuffer.elem.height = this.p.h + this.filterBlurPx * 4
+    // this.blurBuffer.ctx.filter = (this.filterBlurPx != 0) ? `blur(${this.filterBlurPx}px)` : 'none'
+    
+    this.projectorBlurBuffer.elem.width = pWidth
+    this.projectorBlurBuffer.elem.height = pHeight
+    
+    this.projectorBuffer.elem.width = pWidth
+    this.projectorBuffer.elem.height = pHeight
+    this.blurBuffer.ctx.filter = (this.filterBlurPx != 0) ? `blur(${this.filterBlurPx * (this.projectorOuterScale.y / this.projectorScale.y)}px)` : 'none'
+    
+    if (this.projector.elem.width !== pWidth)
+      this.projector.elem.width = pWidth
+    if (this.projector.elem.height !== pHeight)
+      this.projector.elem.height = pHeight
+
 
     if (this.frameBlending) {
       if(!this.previousProjectorBuffer || !this.blendedProjectorBuffer) {
         this.initFrameBlending()
       }
-      this.previousProjectorBuffer.elem.width = this.p.w
-      this.previousProjectorBuffer.elem.height = this.p.h
-      this.blendedProjectorBuffer.elem.width = this.p.w
-      this.blendedProjectorBuffer.elem.height = this.p.h
+      this.previousProjectorBuffer.elem.width = pWidth
+      this.previousProjectorBuffer.elem.height = pHeight
+      this.blendedProjectorBuffer.elem.width = pWidth
+      this.blendedProjectorBuffer.elem.height = pHeight
     }
     if (this.videoOverlayEnabled && !this.videoOverlay) {
       this.initVideoOverlay()
@@ -1512,8 +1538,6 @@ class Ambilight {
     this.videoSnapshotGetImageDataBuffer.elem.height = this.p.h
     this.videoSnapshotBufferBarsClipPx = Math.round(this.videoSnapshotBuffer.elem.height * horizontalBarsClip)
 
-
-    this.resizeCanvasses()
     this.initFPSListElem()
 
     this.sizesInvalidated = false
@@ -1611,145 +1635,245 @@ class Ambilight {
   }
 
   resizeCanvasses() {
-    const projectorSize = {
-      w: this.projectorOffset.width,
-      h: this.projectorOffset.height * this.horizontalBarsClipScaleY
+    this.videoProjectorOffset = {
+      w: this.videoOffset.width,
+      h: this.videoOffset.height * this.horizontalBarsClipScaleY
     }
-    const ratio = (projectorSize.w > projectorSize.h) ?
+    this.projectorOffset = {
+      w: this.videoProjectorOffset.w + this.filterBlurPx * 4,
+      h: this.videoProjectorOffset.h + this.filterBlurPx * 4
+    }
+    this.ratio = (this.videoProjectorOffset.w > this.videoProjectorOffset.h) ?
       {
         x: 1,
-        y: (projectorSize.w / projectorSize.h)
+        y: (this.videoProjectorOffset.w / this.videoProjectorOffset.h)
       } : {
-        x: (projectorSize.h / projectorSize.w),
+        x: (this.videoProjectorOffset.h / this.videoProjectorOffset.w),
         y: 1
       }
-    const lastScale = {
-      x: 1,
-      y: 1
+
+    this.spreadLevels = Math.max(2, Math.round((this.spread / this.edge)) + this.innerStrength + 1)
+    const pos = (this.spreadLevels - 1) - this.innerStrength
+    this.scaleStep = this.edge / 100
+
+    let scaleX = 1
+    let scaleY = 1
+    if (pos > 0) {
+      scaleX = 1 + ((this.scaleStep * this.ratio.x) * pos)
+      scaleY = 1 + ((this.scaleStep * this.ratio.y) * pos)
+    } else if (pos < 0) {
+      scaleX = 1 - ((this.scaleStep * this.ratio.x) * -pos)
+      scaleY = 1 - ((this.scaleStep * this.ratio.y) * -pos)
+      if (scaleX < 0) scaleX = 0
+      if (scaleY < 0) scaleY = 0
     }
 
     //To prevent 0x0 sized canvas elements causing a GPU memory leak
-    const minScale = {
-      x: 1/projectorSize.w,
-      y: 1/projectorSize.h
+    this.projectorOuterScaleMin = {
+      x: 1/this.projectorOffset.w,
+      y: 1/this.projectorOffset.h
     }
 
-    const scaleStep = this.edge / 100
-
-    this.projectors.forEach((projector, i) => {
-      const pos = i - this.innerStrength
-      let scaleX = 1
-      let scaleY = 1
-
-      if (pos > 0) {
-        scaleX = 1 + ((scaleStep * ratio.x) * pos)
-        scaleY = 1 + ((scaleStep * ratio.y) * pos)
-      }
-
-      if (pos < 0) {
-        scaleX = 1 - ((scaleStep * ratio.x) * -pos)
-        scaleY = 1 - ((scaleStep * ratio.y) * -pos)
-        if (scaleX < 0) scaleX = 0
-        if (scaleY < 0) scaleY = 0
-      }
-      lastScale.x = scaleX
-      lastScale.y = scaleY
-      
-      projector.elem.style.transform = `scale(${Math.max(minScale.x, scaleX)}, ${Math.max(minScale.y, scaleY)})`
-    })
-
-    this.shadow.elem.style.transform = `scale(${lastScale.x + 0.01}, ${lastScale.y + 0.01})`
-    this.shadow.ctx.clearRect(0, 0, this.shadow.elem.width, this.shadow.elem.height)
-
-    //Shadow gradient 
-    const drawGradient = (size, edge, keyframes, fadeOutFrom, darkest, horizontal) => {
-      const points = [
-        0,
-        ...keyframes.map(e => Math.max(
-          0, edge - (edge * e.p) - (edge * fadeOutFrom * (1 - e.p))
-        )),
-        edge - (edge * fadeOutFrom),
-        edge + size + (edge * fadeOutFrom),
-        ...keyframes.reverse().map(e => Math.min(
-          edge + size + edge, edge + size + (edge * e.p) + (edge * fadeOutFrom * (1 - e.p))
-        )),
-        edge + size + edge
-      ]
-
-      const pointMax = (points[points.length - 1])
-      const gradient = this.shadow.ctx.createLinearGradient(
-        0,
-        0,
-        horizontal ? this.shadow.elem.width : 0,
-        !horizontal ? this.shadow.elem.height : 0
-      )
-
-      let gradientStops = []
-      gradientStops.push([Math.min(1, points[0] / pointMax), `rgba(0,0,0,${darkest})`])
-      keyframes.forEach((e, i) => {
-        gradientStops.push([Math.min(1, points[0 + keyframes.length - i] / pointMax), `rgba(0,0,0,${e.o})`])
-      })
-      gradientStops.push([Math.min(1, points[1 + keyframes.length] / pointMax), `rgba(0,0,0,0)`])
-      gradientStops.push([Math.min(1, points[2 + keyframes.length] / pointMax), `rgba(0,0,0,0)`])
-      keyframes.reverse().forEach((e, i) => {
-        gradientStops.push([Math.min(1, points[2 + (keyframes.length * 2) - i] / pointMax), `rgba(0,0,0,${e.o})`])
-      })
-      gradientStops.push([Math.min(1, points[3 + (keyframes.length * 2)] / pointMax), `rgba(0,0,0,${darkest})`])
-
-      gradientStops = gradientStops.map(args => [(Math.round(args[0] * 10000)/ 10000), args[1]])
-      gradientStops.forEach(args => gradient.addColorStop(...args))
-      this.shadow.ctx.fillStyle = gradient
-      this.shadow.ctx.fillRect(0, 0, this.shadow.elem.width, this.shadow.elem.height)
+    // Todo: Add blur sizes
+    this.projectorOuterScale = {
+      x: Math.max(this.projectorOuterScaleMin.x, scaleX * (this.projectorOffset.w / this.videoProjectorOffset.w)),
+      y: Math.max(this.projectorOuterScaleMin.y, scaleY * (this.projectorOffset.h / this.videoProjectorOffset.h))
+    }
+    this.projectorScale = {
+      x: this.projectorOuterScale.x * (this.videoProjectorOffset.w / this.projectorOffset.w),
+      y: this.projectorOuterScale.y * (this.videoProjectorOffset.h / this.projectorOffset.h)
     }
 
+    this.projector.elem.style.transform = `scale(${this.projectorOuterScale.x}, ${this.projectorOuterScale.y})`
+    this.shadow.elem.style.transform = `scale(${this.projectorOuterScale.x}, ${this.projectorOuterScale.y})`
+
+    this.updateShadow()
+  }
+
+  updateShadow() {
+    const video = this.videoProjectorOffset
+    const projectorOuter = {
+      w: Math.floor(video.w * this.projectorOuterScale.x),
+      h: Math.floor(video.h * this.projectorOuterScale.y)
+    }
+    const projector = {
+      w: Math.floor(video.w * this.projectorScale.x),
+      h: Math.floor(video.h * this.projectorScale.y)
+    }
     const edge = {
-      w: ((projectorSize.w * lastScale.x) - projectorSize.w) / 2 / lastScale.x,
-      h: ((projectorSize.h * lastScale.y) - projectorSize.h) / 2 / lastScale.y
+      w: Math.ceil((projector.w - video.w) / 2),
+      h: Math.ceil((projector.h - video.h) / 2)
     }
-    const video = {
-      w: (projectorSize.w / lastScale.x),
-      h: (projectorSize.h / lastScale.y)
+    const projectorMax = 1920
+    const maxScale = Math.min(1, projectorMax / projector.w, projectorMax / projector.h)
+    const scale = {
+      x: maxScale, // this.shadow.elem.width / (video.w + edge.w + edge.w),
+      y: maxScale // this.shadow.elem.height / (video.h + edge.h + edge.h)
     }
-
-    const plotKeyframes = (length, powerOf, darkest) => {
-      const keyframes = []
-      for (let i = 1; i < length; i++) {
-        keyframes.push({
-          p: (i / length),
-          o: Math.pow(i / length, powerOf) * darkest
-        })
-      }
-      return keyframes.map(({p, o}) => ({
-        p: (Math.round(p * 10000) / 10000),
-        o: (Math.round(o * 10000) / 10000)
-      }))
-    }
-    const darkest = 1
-    const easing = (16 / (this.fadeOutEasing * .64))
-    const keyframes = plotKeyframes(256, easing, darkest)
 
     let fadeOutFrom = this.bloom / 100
     const fadeOutMinH = -(video.h / 2 / edge.h)
     const fadeOutMinW = -(video.w / 2 / edge.w)
     fadeOutFrom = Math.max(fadeOutFrom, fadeOutMinH, fadeOutMinW)
 
-    drawGradient(video.h, edge.h, keyframes, fadeOutFrom, darkest, false)
-    drawGradient(video.w, edge.w, keyframes, fadeOutFrom, darkest, true)
+    const shadowCenter = {
+      x: (edge.w - (edge.w * fadeOutFrom)) * scale.x,
+      y: (edge.h - (edge.h * fadeOutFrom)) * scale.y,
+      w: (video.w + ((edge.w * 2) * fadeOutFrom)) * scale.x,
+      h: (video.h + ((edge.h * 2) * fadeOutFrom)) * scale.y,
+    }
+    const videoCenter = {
+      x: edge.w * scale.x,
+      y: edge.h * scale.y,
+      w: video.w * scale.x,
+      h: video.h * scale.y,
+    }
+  
+    // Create gradient stops
+    const darkest = 1
+    const easing = (16 / (this.fadeOutEasing * .64))
+    const stopsLength = 256
+    let stops = []
+    for (let i = 0; i <= stopsLength; i++) {
+      stops.push({
+        p: (i / stopsLength),
+        o: Math.pow((stopsLength - i) / stopsLength, easing) * darkest
+      })
+    }
+    stops = stops.map(({p, o}) => ({
+      p: (Math.round(p * 10000) / 10000),
+      o: (Math.round(o * 10000) / 10000)
+    }))
 
-    // Directions
-    const scaleW = this.shadow.elem.width / (video.w + edge.w + edge.w)
-    const scaleH = this.shadow.elem.height / (video.h + edge.h + edge.h)
+
+    // Draw side shadow
+    this.sideShadowBuffer.elem.width = Math.max(1, shadowCenter.x)
+    this.sideShadowBuffer.elem.height = 1
+    this.sideShadowBuffer.ctx.clearRect(0, 0, this.sideShadowBuffer.elem.width, this.sideShadowBuffer.elem.height)
+    const sideGradient = this.sideShadowBuffer.ctx.createLinearGradient(0, 0, this.sideShadowBuffer.elem.width, 0)
+    stops.forEach(({ p, o }) => sideGradient.addColorStop(p, `rgba(0,0,0,${o})`))
+    this.sideShadowBuffer.ctx.fillStyle = sideGradient
+    this.sideShadowBuffer.ctx.fillRect(0, 0, this.sideShadowBuffer.elem.width, this.sideShadowBuffer.elem.height)
+
+
+    // Draw corner shadow
+    const largestCenterSide = Math.max(shadowCenter.x, shadowCenter.y)
+    const largestFadeOut = Math.max(((edge.w * fadeOutFrom) * scale.x), ((edge.h * fadeOutFrom)) * scale.y)
+    this.cornerShadowBuffer.elem.width = Math.max(1, (largestCenterSide + largestFadeOut))
+    this.cornerShadowBuffer.elem.height = Math.max(1, (largestCenterSide + largestFadeOut))
+    this.cornerShadowBuffer.ctx.clearRect(0, 0, this.cornerShadowBuffer.elem.width, this.cornerShadowBuffer.elem.height)
+    const cornerGradient = this.sideShadowBuffer.ctx.createRadialGradient(
+      this.cornerShadowBuffer.elem.width, this.cornerShadowBuffer.elem.height, this.cornerShadowBuffer.elem.width,
+      this.cornerShadowBuffer.elem.width, this.cornerShadowBuffer.elem.height, Math.min(this.cornerShadowBuffer.elem.width - 1, Math.max(0, largestFadeOut))
+    )
+    stops.forEach(({ p, o }) => cornerGradient.addColorStop(p, `rgba(0,0,0,${o})`))
+    this.cornerShadowBuffer.ctx.fillStyle = cornerGradient
+    this.cornerShadowBuffer.ctx.fillRect(0, 0, this.cornerShadowBuffer.elem.width, this.cornerShadowBuffer.elem.height)
+
+
+    //// Draw shadows
+    this.shadowBuffer.ctx.clearRect(0, 0, this.shadowBuffer.elem.width, this.shadowBuffer.elem.height)
+    this.shadowBuffer.elem.width = Math.floor(projector.w * scale.x)
+    this.shadowBuffer.elem.height = Math.floor(projector.h * scale.y)
+
+    const drawCornerShadow = () => {
+      const w = Math.max(shadowCenter.x, videoCenter.x)
+      const h = Math.max(shadowCenter.y, videoCenter.y)
+      if (w <= 0 || h <= 0) return
+      this.shadowBuffer.ctx.clearRect(0, 0, w, h)
+      this.shadowBuffer.ctx.drawImage(this.cornerShadowBuffer.elem,
+        0, 0, w, h
+      )
+    }
+    const drawVerticalShadow = () => {
+      const w = shadowCenter.x
+      const h = Math.min(shadowCenter.h, videoCenter.h)
+      if (w <= 0 || h <= 0) return
+      this.shadowBuffer.ctx.drawImage(this.sideShadowBuffer.elem,
+        0, Math.max(shadowCenter.y, videoCenter.y), w, h
+      )
+    }
+    const drawHorizontalShadow = () => {
+      if (shadowCenter.y === 0 || videoCenter.w === 0) return
+      this.shadowBuffer.ctx.drawImage(this.sideShadowBuffer.elem,
+        0, Math.min(shadowCenter.x, videoCenter.x), shadowCenter.y, Math.max(shadowCenter.w, videoCenter.w)
+      )
+    }
+
+    const rotate = (times, callback) => {
+      for(let i = times; i > 0; i -= 2) {
+        this.shadowBuffer.ctx.translate(this.shadowBuffer.elem.width, 0)
+        this.shadowBuffer.ctx.rotate(90 * Math.PI / 180)
+        if(i > 1) {
+          this.shadowBuffer.ctx.translate(this.shadowBuffer.elem.height, 0)
+          this.shadowBuffer.ctx.rotate(90 * Math.PI / 180)
+        }
+      }
+      callback()
+      for(let i = times; i >= 0; i -= 2) {
+        if((i < times || i % 2 === 1)) {
+          this.shadowBuffer.ctx.rotate(-90 * Math.PI / 180)
+          this.shadowBuffer.ctx.translate(-this.shadowBuffer.elem.width, 0)
+        }
+        if(i > 1) {
+          this.shadowBuffer.ctx.rotate(-90 * Math.PI / 180)
+          this.shadowBuffer.ctx.translate(-this.shadowBuffer.elem.height, 0)
+        }
+      }
+    }
+
+    rotate(0, () => drawVerticalShadow())
+    rotate(1, () => drawHorizontalShadow())
+    rotate(2, () => drawVerticalShadow())
+    rotate(3, () => drawHorizontalShadow())
+
+    rotate(0, () => drawCornerShadow())
+    rotate(1, () => drawCornerShadow())
+    rotate(2, () => drawCornerShadow())
+    rotate(3, () => drawCornerShadow())
+
+
+    // Blur shadow
+    const shadowBlur = this.filterBlurPx * scale.y
+    const shadowOuterBlur = shadowBlur * (this.projectorOuterScale.y / this.projectorScale.y)
+    // console.log('shadowBlur', shadowBlur, this.filterBlurPx, this.projectorScale.y, scale.y)
+    const shadowOuterBlurBorder = (shadowOuterBlur * 4)
+  
+    this.shadowPreBlurBuffer.ctx.clearRect(0, 0, this.shadowPreBlurBuffer.elem.width, this.shadowPreBlurBuffer.elem.height)
+    this.shadowPreBlurBuffer.elem.width = this.shadowBuffer.elem.width + shadowOuterBlurBorder * 2
+    this.shadowPreBlurBuffer.elem.height = this.shadowBuffer.elem.height + shadowOuterBlurBorder * 2
+    this.shadowPreBlurBuffer.ctx.fillStyle = '#000'
+    this.shadowPreBlurBuffer.ctx.fillRect(0, 0, shadowOuterBlurBorder, this.shadowPreBlurBuffer.elem.height)
+    this.shadowPreBlurBuffer.ctx.fillRect((this.shadowPreBlurBuffer.elem.width - shadowOuterBlurBorder), 0, shadowOuterBlurBorder, this.shadowPreBlurBuffer.elem.height)
+    this.shadowPreBlurBuffer.ctx.fillRect(0, 0, this.shadowPreBlurBuffer.elem.width, shadowOuterBlurBorder)
+    this.shadowPreBlurBuffer.ctx.fillRect(0, (this.shadowPreBlurBuffer.elem.height - shadowOuterBlurBorder), this.shadowPreBlurBuffer.elem.width, shadowOuterBlurBorder)
+    this.shadowPreBlurBuffer.ctx.drawImage(this.shadowBuffer.elem, shadowOuterBlurBorder, shadowOuterBlurBorder)
+    
+    this.shadowBlurBuffer.ctx.clearRect(0, 0, this.shadowBlurBuffer.elem.width, this.shadowBlurBuffer.elem.height)
+    this.shadowBlurBuffer.elem.width = this.shadowPreBlurBuffer.elem.width
+    this.shadowBlurBuffer.elem.height = this.shadowPreBlurBuffer.elem.height
+    this.shadowBlurBuffer.ctx.filter = (shadowOuterBlur != 0) ? `blur(${shadowOuterBlur}px)` : 'none'
+    this.shadowBlurBuffer.ctx.drawImage(this.shadowPreBlurBuffer.elem, 0, 0)
+
+    this.shadow.ctx.clearRect(0, 0, this.shadow.elem.width, this.shadow.elem.height)
+    this.shadow.elem.width = this.shadowBlurBuffer.elem.width
+    this.shadow.elem.height = this.shadowBlurBuffer.elem.height
+    this.shadow.ctx.drawImage(this.shadowBlurBuffer.elem,
+      0, 0
+    )
+    
+
+    // Blackout disabled directions
     this.shadow.ctx.fillStyle = '#000000'
-
 
     if(!this.directionTopEnabled) {
       this.shadow.ctx.beginPath()
 
       this.shadow.ctx.moveTo(0, 0)
-      this.shadow.ctx.lineTo(scaleW * (edge.w),                     scaleH * (edge.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + (video.w / 2)),     scaleH * (edge.h + (video.h / 2)))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w),           scaleH * (edge.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w + edge.w),  0)
+      this.shadow.ctx.lineTo(scale.x * (edge.w),                     scale.y * (edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + (video.w / 2)),     scale.y * (edge.h + (video.h / 2)))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w),           scale.y * (edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w + edge.w),  0)
       
       this.shadow.ctx.fill()
     }
@@ -1757,11 +1881,11 @@ class Ambilight {
     if(!this.directionRightEnabled) {
       this.shadow.ctx.beginPath()
 
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w + edge.w),  0)
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w),           scaleH * (edge.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + (video.w / 2)),     scaleH * (edge.h + (video.h / 2)))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w),           scaleH * (edge.h + video.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w + edge.w),  scaleH * (edge.h + video.h + edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w + edge.w),  0)
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w),           scale.y * (edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + (video.w / 2)),     scale.y * (edge.h + (video.h / 2)))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w),           scale.y * (edge.h + video.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w + edge.w),  scale.y * (edge.h + video.h + edge.h))
       
       this.shadow.ctx.fill()
     }
@@ -1769,11 +1893,11 @@ class Ambilight {
     if(!this.directionBottomEnabled) {
       this.shadow.ctx.beginPath()
 
-      this.shadow.ctx.moveTo(0,                                     scaleH * (edge.h + video.h + edge.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w),                     scaleH * (edge.h + video.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + (video.w / 2)),     scaleH * (edge.h + (video.h / 2)))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w),           scaleH * (edge.h + video.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + video.w + edge.w),  scaleH * (edge.h + video.h + edge.h))
+      this.shadow.ctx.moveTo(0,                                     scale.y * (edge.h + video.h + edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w),                     scale.y * (edge.h + video.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + (video.w / 2)),     scale.y * (edge.h + (video.h / 2)))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w),           scale.y * (edge.h + video.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + video.w + edge.w),  scale.y * (edge.h + video.h + edge.h))
       
       this.shadow.ctx.fill()
     }
@@ -1782,21 +1906,16 @@ class Ambilight {
       this.shadow.ctx.beginPath()
 
       this.shadow.ctx.moveTo(0,                                     0)
-      this.shadow.ctx.lineTo(scaleW * (edge.w),                     scaleH * (edge.h))
-      this.shadow.ctx.lineTo(scaleW * (edge.w + (video.w / 2)),     scaleH * (edge.h + (video.h / 2)))
-      this.shadow.ctx.lineTo(scaleW * (edge.w),                     scaleH * (edge.h + video.h))
-      this.shadow.ctx.lineTo(0,                                     scaleH * (edge.h + video.h + edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w),                     scale.y * (edge.h))
+      this.shadow.ctx.lineTo(scale.x * (edge.w + (video.w / 2)),     scale.y * (edge.h + (video.h / 2)))
+      this.shadow.ctx.lineTo(scale.x * (edge.w),                     scale.y * (edge.h + video.h))
+      this.shadow.ctx.lineTo(0,                                     scale.y * (edge.h + video.h + edge.h))
       
       this.shadow.ctx.fill()
     }
   }
 
   checkVideoSize(checkPosition = true) {
-    if (this.canvassesInvalidated) {
-      this.canvassesInvalidated = false
-      this.recreateProjectors()
-    }
-
     if (this.sizesInvalidated) {
       this.sizesInvalidated = false
       return this.updateSizes()
@@ -2165,6 +2284,67 @@ class Ambilight {
       : (this.displayFrameRate < this.videoFrameRate - 0.01) ? '#ff3' : '#7f7'
   }
 
+  drawProjectorBuffer() {
+    this.blurBuffer.ctx.clearRect(0, 0, this.blurBuffer.elem.width, this.blurBuffer.elem.height)
+    this.blurBuffer.ctx.drawImage(this.videoSnapshotBuffer.elem,
+      0,
+      this.videoSnapshotBufferBarsClipPx,
+      this.videoSnapshotBuffer.elem.width,
+      (this.videoSnapshotBuffer.elem.height - (this.videoSnapshotBufferBarsClipPx * 2)),
+
+      this.filterBlurPx * 2,
+      this.filterBlurPx * 2,
+      this.blurBuffer.elem.width - this.filterBlurPx * 4,
+      this.blurBuffer.elem.height - this.filterBlurPx * 4
+    )
+
+    this.projectorBlurBuffer.ctx.clearRect(0, 0, this.projectorBlurBuffer.elem.width, this.projectorBlurBuffer.elem.height)
+    for(let i = this.spreadLevels - 1; i >= 0; i--) {
+      const pos = i - this.innerStrength
+      let scaleX = 1
+      let scaleY = 1
+
+      if (pos > 0) {
+        scaleX = 1 + ((this.scaleStep * this.ratio.x) * pos)
+        scaleY = 1 + ((this.scaleStep * this.ratio.y) * pos)
+      }
+
+      if (pos < 0) {
+        scaleX = 1 - ((this.scaleStep * this.ratio.x) * -pos)
+        scaleY = 1 - ((this.scaleStep * this.ratio.y) * -pos)
+        if (scaleX < 0) scaleX = 0
+        if (scaleY < 0) scaleY = 0
+      }
+      
+      scaleX = Math.max(this.projectorOuterScaleMin.x, scaleX)
+      scaleY = Math.max(this.projectorOuterScaleMin.y, scaleY)
+      // projector.elem.style.transform = `scale(${scaleX}, ${scaleY})`
+      
+      const canvasScaleX = scaleX // * (this.projectorOuterScale.x / this.projectorScale.x)
+      const canvasScaleY = scaleY // * (this.projectorOuterScale.y / this.projectorScale.y)
+
+      // console.log('draw', pos, canvasScaleX, canvasScaleY)
+
+      const width = this.blurBuffer.elem.width + this.filterBlurPx * 2
+      const height = this.blurBuffer.elem.height + this.filterBlurPx * 2
+
+      this.projectorBlurBuffer.ctx.drawImage(this.blurBuffer.elem,
+        0,
+        0,
+        this.blurBuffer.elem.width,
+        this.blurBuffer.elem.height,
+        
+        ((this.projectorBlurBuffer.elem.width - (width * canvasScaleX)) / 2),
+        ((this.projectorBlurBuffer.elem.height - (height * canvasScaleY)) / 2),
+        (width * canvasScaleX),
+        (height * canvasScaleY)
+      )
+    }
+
+    this.projectorBuffer.ctx.clearRect(0, 0, this.projectorBuffer.elem.width, this.projectorBuffer.elem.height)
+    this.projectorBuffer.ctx.drawImage(this.projectorBlurBuffer.elem, 0, 0)
+  }
+
   drawAmbilight() {
     if (!this.enabled || !this.isOnVideoPage) return
 
@@ -2304,17 +2484,13 @@ class Ambilight {
             }
           }
           if(!this.buffersCleared) {
+            this.previousProjectorBuffer.ctx.clearRect(0, 0, this.previousProjectorBuffer.elem.width, this.previousProjectorBuffer.elem.height)
             this.previousProjectorBuffer.ctx.drawImage(this.projectorBuffer.elem, 0, 0)
           }
           // Prevent adjusted videoSnapshotBufferBarsClipPx from leaking previous frame into the frame
-          this.projectorBuffer.ctx.clearRect(0, 0, this.projectorBuffer.elem.width, this.projectorBuffer.elem.height)
-          this.projectorBuffer.ctx.drawImage(this.videoSnapshotBuffer.elem,
-            0,
-            this.videoSnapshotBufferBarsClipPx,
-            this.videoSnapshotBuffer.elem.width,
-            this.videoSnapshotBuffer.elem.height - (this.videoSnapshotBufferBarsClipPx * 2),
-            0, 0, this.projectorBuffer.elem.width, this.projectorBuffer.elem.height)
+          this.drawProjectorBuffer()
           if(this.buffersCleared) {
+            this.previousProjectorBuffer.ctx.clearRect(0, 0, this.previousProjectorBuffer.elem.width, this.previousProjectorBuffer.elem.height)
             this.previousProjectorBuffer.ctx.drawImage(this.projectorBuffer.elem, 0, 0)
           }
         }
@@ -2368,6 +2544,7 @@ class Ambilight {
         //this.blendedProjectorBuffer can contain an old frame and be impossible to drawImage onto
         //this.previousProjectorBuffer can also contain an old frame
         
+        this.blendedProjectorBuffer.ctx.clearRect(0, 0, this.blendedProjectorBuffer.elem.width, this.blendedProjectorBuffer.elem.height)
         if(alpha !== 1) {
           if(this.blendedProjectorBuffer.ctx.globalAlpha !== 1)
             this.blendedProjectorBuffer.ctx.globalAlpha = 1
@@ -2379,9 +2556,8 @@ class Ambilight {
         }
         this.blendedProjectorBuffer.ctx.globalAlpha = 1
 
-        for(const projector of this.projectors) {
-          projector.ctx.drawImage(this.blendedProjectorBuffer.elem, 0, 0)
-        }
+        this.projector.ctx.clearRect(0, 0, this.projector.elem.width, this.projector.elem.height)
+        this.projector.ctx.drawImage(this.blendedProjectorBuffer.elem, 0, 0)
       }
     } else {
       if (!hasNewFrame) return
@@ -2395,22 +2571,15 @@ class Ambilight {
       }
 
       // Prevent adjusted videoSnapshotBufferBarsClipPx from leaking previous frame into the frame
-      this.projectorBuffer.ctx.clearRect(0, 0, this.projectorBuffer.elem.width, this.projectorBuffer.elem.height)
-      this.projectorBuffer.ctx.drawImage(this.videoSnapshotBuffer.elem,
-        0,
-        this.videoSnapshotBufferBarsClipPx,
-        this.videoSnapshotBuffer.elem.width,
-        this.videoSnapshotBuffer.elem.height - (this.videoSnapshotBufferBarsClipPx * 2), 
-        0, 0, this.projectorBuffer.elem.width, this.projectorBuffer.elem.height)
+      this.drawProjectorBuffer()
 
       // if(this.enableChromiumBug1092080Workaround) { // && this.displayFrameRate >= this.ambilightFrameRate) {
       //   for(const projector of this.projectors) {
       //     projector.ctx.clearRect(0, 0, projector.elem.width, projector.elem.height)
       //   }
       // }
-      for(const projector of this.projectors) {
-        projector.ctx.drawImage(this.projectorBuffer.elem, 0, 0)
-      }
+      this.projector.ctx.clearRect(0, 0, this.projector.elem.width, this.projector.elem.height)
+      this.projector.ctx.drawImage(this.projectorBuffer.elem, 0, 0)
     }
 
     this.buffersCleared = false
@@ -2971,13 +3140,6 @@ class Ambilight {
             setting.name === 'detectHorizontalBarSizeOffsetPercentage'
           ) {
             this.scheduleHorizontalBarSizeDetection()
-          }
-
-          if (
-            setting.name === 'spread' || 
-            setting.name === 'edge'
-          ) {
-            this.canvassesInvalidated = true
           }
 
           this.buffersCleared = true
